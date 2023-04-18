@@ -105,7 +105,7 @@ class _StripPlotter(_CategoricalScatterPlotter):
                     hue_mask = np.ones(group_data.size, np.bool)
                 else:
                     hue_mask = np.array([h in self.hue_names
-                                         for h in self.plot_hues[i]], np.bool)
+                                         for h in self.plot_hues[i]], bool)
 
                 strip_data = group_data[hue_mask]
                 point_colors = np.asarray(self.point_colors[i][hue_mask])
