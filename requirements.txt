@@ -1,6 +1,6 @@
 matplotlib
 numpy>=1.16
 scipy
-seaborn==0.11
+seaborn
 pandas>=1.0
 nbconvert[all]
