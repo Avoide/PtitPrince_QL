@@ -1,10 +1,14 @@
 from __future__ import division
 
 import warnings
+from colorsys import rgb_to_hls
+from typing import Optional, List, Union, Dict, Any
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.axes
 import numpy as np
+import pandas as pd
 import seaborn as sns
 from scipy import stats
 from seaborn.categorical import *
@@ -12,6 +16,27 @@ from seaborn.categorical import _CategoricalPlotter#, _CategoricalScatterPlotter
 
 __all__ = ["half_violinplot", "stripplot", "RainCloud"]
 __version__ = '0.2.7'
+
+# Define a type alias for data inputs for reusability
+DataInput = Optional[Union[pd.Series, np.ndarray, List]]
+
+# Legacy gray color constant for backward compatibility
+_LEGACY_GRAY = "0.3"  # Matches the gray color from older seaborn versions
+
+
+def _get_complementary_gray(base_color, hue_map):
+    """Creates a gray color that complements the plot's main colors."""
+    if hue_map.lookup_table is None:
+        if base_color is None:
+            return "0.3"  # A safe default
+        basis = [mpl.colors.to_rgb(base_color)]
+    else:
+        basis = [mpl.colors.to_rgb(c) for c in hue_map.lookup_table.values()]
+
+    unique_colors = np.unique(basis, axis=0)
+    light_vals = [rgb_to_hls(*rgb[:3])[1] for rgb in unique_colors]
+    lum = min(light_vals) * .6
+    return (lum, lum, lum)
 
 
 class _Half_ViolinPlotter(_CategoricalPlotter):
@@ -60,7 +85,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             linewidth = mpl.rcParams["lines.linewidth"]
         self.linewidth = linewidth
 
-        self.gray = self._complement_color("auto", color, self._hue_map)
+        self.gray = _get_complementary_gray(color, self._hue_map)
         # Fallback to explicit gray if complement color is not working
         if self.gray is None or self.gray == "none":
             self.gray = "0.3"
@@ -128,7 +153,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             self.scale_area(scale_hue)
 
         elif scale == "width":
-            self.scale_width
+            self._scale_width()
 
         elif scale == "count":
             self.scale_count(scale_hue)
@@ -207,15 +232,6 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             if scaler > 0:
                 violin["density"] /= scaler
 
-    def scale_width(self, density):
-        """Scale each density curve to the same height."""
-        if "hue" not in self.variables:
-            for d in density:
-                d /= d.max()
-        else:
-            for group in density:
-                for d in group:
-                    d /= d.max()
 
     def scale_count(self, scale_hue):
         """Scale each density curve by observation count in self.violin_data."""
@@ -266,8 +282,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             # Apply the final scaling
             violin["density"] = normalized_density * scaler
 
-    @property
-    def scale_width(self):
+    def _scale_width(self):
         """Scale each density curve to the same height in self.violin_data."""
         for violin in self.violin_data:
             density = violin["density"]
@@ -594,12 +609,38 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         if self.orient == "h":
             ax.invert_yaxis()
 
-def stripplot(x=None, y=None, hue=None, data=None, order=None, hue_order=None,
-              jitter=True, dodge=False, orient=None, color=None, palette=None, move=0,
-              size=5, edgecolor="gray", linewidth=0, ax=None, width=.8, **kwargs):
+def stripplot(
+    x: DataInput = None,
+    y: DataInput = None,
+    hue: DataInput = None,
+    data: Optional[pd.DataFrame] = None,
+    order: Optional[List[str]] = None,
+    hue_order: Optional[List[str]] = None,
+    jitter: bool = True,
+    dodge: bool = False,
+    orient: Optional[str] = None,
+    color: Optional[str] = None,
+    palette: Optional[Union[str, List, Dict]] = None,
+    move: float = 0,
+    size: float = 5,
+    edgecolor: str = "gray",
+    linewidth: float = 0,
+    ax: Optional[matplotlib.axes.Axes] = None,
+    width: float = .8,
+    **kwargs: Any,
+) -> matplotlib.axes.Axes:
     """
     A wrapper around seaborn's stripplot that adds a `move` parameter
     and preserves specific style defaults.
+
+    Parameters
+    ----------
+    move : float, default 0
+        Shift the strip plot along the categorical axis to create offset positioning.
+        Positive values move the points in the positive direction of the categorical axis.
+
+    Other parameters are passed directly to seaborn.stripplot().
+    See seaborn.stripplot documentation for full parameter details.
     """
     # 1. Handle legacy `split` argument if necessary
     if "split" in kwargs:
@@ -614,8 +655,8 @@ def stripplot(x=None, y=None, hue=None, data=None, order=None, hue_order=None,
     if linewidth is None:
         linewidth = size / 10
     if edgecolor == "gray":
-        # Convert "gray" string to actual gray color like old version did
-        edgecolor = "0.3"  # This matches the gray color used in old version
+        # Convert "gray" string to actual gray color for backward compatibility
+        edgecolor = _LEGACY_GRAY
 
     # 4. Call the official seaborn stripplot function.
     #    We pass all standard arguments directly to it.
@@ -626,8 +667,9 @@ def stripplot(x=None, y=None, hue=None, data=None, order=None, hue_order=None,
 
     # 4. Apply the custom `move` functionality if needed
     if move != 0:
-        # The stripplot artists are in `ax.collections`.
-        # We assume the last one added is the one we want to move.
+        # Note: This assumes that the collection created by stripplot is the
+        # last one added to the axes. This is generally true but could be
+        # brittle if the axes already contain other collections.
         if ax.collections:
             points_collection = ax.collections[-1]
             offsets = points_collection.get_offsets()
@@ -639,18 +681,38 @@ def stripplot(x=None, y=None, hue=None, data=None, order=None, hue_order=None,
             else:
                 # Vertical plot: move the x-positions
                 offsets[:, 0] += move
-            
+
             points_collection.set_offsets(offsets)
 
     # 5. Return the axes object
     return ax
 
 
-def half_violinplot(x=None, y=None, hue=None, data=None, order=None, hue_order=None,
-               bw="scott", cut=2, scale="area", scale_hue=True, gridsize=100,
-               width=.8, inner="box", split=False, dodge=True, orient=None,
-               linewidth=None, color=None, palette=None, saturation=.75,
-               ax=None, offset=.15, **kwargs):
+def half_violinplot(
+    x: DataInput = None,
+    y: DataInput = None,
+    hue: DataInput = None,
+    data: Optional[pd.DataFrame] = None,
+    order: Optional[List[str]] = None,
+    hue_order: Optional[List[str]] = None,
+    bw: Union[str, float] = "scott",
+    cut: float = 2,
+    scale: str = "area",
+    scale_hue: bool = True,
+    gridsize: int = 100,
+    width: float = .8,
+    inner: Optional[str] = "box",
+    split: bool = False,
+    dodge: bool = True,
+    orient: Optional[str] = None,
+    linewidth: Optional[float] = None,
+    color: Optional[str] = None,
+    palette: Optional[Union[str, List, Dict]] = None,
+    saturation: float = .75,
+    ax: Optional[matplotlib.axes.Axes] = None,
+    offset: float = .15,
+    **kwargs: Any,
+) -> matplotlib.axes.Axes:
 
     plotter = _Half_ViolinPlotter(x, y, hue, data, order, hue_order,
                              bw, cut, scale, scale_hue, gridsize,
@@ -664,13 +726,32 @@ def half_violinplot(x=None, y=None, hue=None, data=None, order=None, hue_order=N
     return ax
 
 
-def RainCloud(x = None, y = None, hue = None, data = None,
-              order = None, hue_order = None,
-              orient = "v", width_viol = .7, width_box = .15,
-              palette = "Set2", bw = .2, linewidth = 1, cut = 0.,
-              scale = "area", jitter = True, move = 0., offset = None,
-              point_size = 3, ax = None, pointplot = False,
-              alpha = None, dodge = False, linecolor = 'red', **kwargs):
+def RainCloud(
+    x: DataInput = None,
+    y: DataInput = None,
+    hue: DataInput = None,
+    data: Optional[pd.DataFrame] = None,
+    order: Optional[List[str]] = None,
+    hue_order: Optional[List[str]] = None,
+    orient: str = "v",
+    width_viol: float = .7,
+    width_box: float = .15,
+    palette: Union[str, List, Dict] = "Set2",
+    bw: Union[str, float] = .2,
+    linewidth: float = 1,
+    cut: float = 0.,
+    scale: str = "area",
+    jitter: bool = True,
+    move: float = 0.,
+    offset: Optional[float] = None,
+    point_size: float = 3,
+    ax: Optional[matplotlib.axes.Axes] = None,
+    pointplot: bool = False,
+    alpha: Optional[float] = None,
+    dodge: bool = False,
+    linecolor: str = 'red',
+    **kwargs: Any,
+) -> matplotlib.axes.Axes:
 
     '''Draw a Raincloud plot of measure `y` of different categories `x`. Here `x` and `y` different columns of the pandas dataframe `data`.
 
@@ -757,7 +838,7 @@ def RainCloud(x = None, y = None, hue = None, data = None,
     # Add pointplot
     if pointplot:
         n_plots = 4
-        if not hue is None:
+        if hue is not None:
             n_cat = len(np.unique(data[hue]))
             sns.pointplot(x = x, y = y, hue = hue, data = data,
                           orient = orient, order = order, hue_order = hue_order,
@@ -768,10 +849,14 @@ def RainCloud(x = None, y = None, hue = None, data = None,
                            dodge = width_box/2., ax = ax, **kwpoint)
 
     # Prune the legend, add legend title
-    if not hue is None:
+    if hue is not None:
         handles, labels = ax.get_legend_handles_labels()
-        _ = plt.legend(handles[0:len(labels)//n_plots], labels[0:len(labels)//n_plots], \
-                       bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., \
+
+        # Each plot component (violin, box, strip) adds its own legend entries when `hue`
+        # is used. We only want to show one set of entries for clarity.
+        num_hue_levels = len(labels) // n_plots
+        _ = plt.legend(handles[:num_hue_levels], labels[:num_hue_levels],
+                       bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.,
                        title = str(hue))#, title_fontsize = 25)
 
     # Adjust the ylim to fit (if needed)
