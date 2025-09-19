@@ -8,82 +8,10 @@ import numpy as np
 import seaborn as sns
 from scipy import stats
 from seaborn.categorical import *
-from seaborn.categorical import _CategoricalPlotter, _CategoricalScatterPlotter
+from seaborn.categorical import _CategoricalPlotter#, _CategoricalScatterPlotter
 
 __all__ = ["half_violinplot", "stripplot", "RainCloud"]
-__version__ = '0.2.6'
-
-
-class _StripPlotter(_CategoricalScatterPlotter):
-    """1-d scatterplot with categorical organization."""
-    def __init__(self, x, y, hue, data, order, hue_order,
-                 jitter, dodge, orient, color, palette, width, move):
-        """Initialize the plotter."""
-        self.establish_variables(x, y, hue, data, orient, order, hue_order)
-        self.establish_colors(color, palette, 1)
-
-        # Set object attributes
-        self.dodge = dodge
-        self.width = width
-        self.move = move
-
-        if jitter == 1:  # Use a good default for `jitter = True`
-            jlim = 0.1
-        else:
-            jlim = float(jitter)
-        if self.hue_names is not None and dodge:
-            jlim /= len(self.hue_names)
-        self.jitterer = stats.uniform(-jlim, jlim * 2).rvs
-
-    def draw_stripplot(self, ax, kws):
-        """Draw the points onto `ax`."""
-        palette = np.asarray(self.colors)
-        for i, group_data in enumerate(self.plot_data):
-            if self.plot_hues is None or not self.dodge:
-
-                if self.hue_names is None:
-                    hue_mask = np.ones(group_data.size, bool)
-                else:
-                    hue_mask = np.array([h in self.hue_names
-                                         for h in self.plot_hues[i]], bool)
-
-                strip_data = group_data[hue_mask]
-                point_colors = np.asarray(self.point_colors[i][hue_mask])
-
-                # Plot the points in centered positions
-                cat_pos = self.move + np.ones(strip_data.size) * i
-                cat_pos += self.jitterer(len(strip_data))
-                kws.update(c=palette[point_colors])
-
-                if self.orient == "v":
-                    ax.scatter(cat_pos, strip_data, **kws)
-                else:
-                    ax.scatter(strip_data, cat_pos, **kws)
-
-            else:
-                offsets = self.hue_offsets
-                for j, hue_level in enumerate(self.hue_names):
-                    hue_mask = self.plot_hues[i] == hue_level
-                    strip_data = group_data[hue_mask]
-
-                    point_colors = np.asarray(self.point_colors[i][hue_mask])
-                    # Plot the points in centered positions
-                    center = i + offsets[j]
-                    cat_pos = self.move + np.ones(strip_data.size) * center
-                    cat_pos += self.jitterer(len(strip_data))
-                    kws.update(c=palette[point_colors])
-                    if self.orient == "v":
-                        ax.scatter(cat_pos, strip_data, **kws)
-                    else:
-                        ax.scatter(strip_data, cat_pos, **kws)
-
-    def plot(self, ax, kws):
-        """Make the plot."""
-        self.draw_stripplot(ax, kws)
-        self.add_legend_data(ax)
-        self.annotate_axes(ax)
-        if self.orient == "h":
-            ax.invert_yaxis()
+__version__ = '0.2.7'
 
 
 class _Half_ViolinPlotter(_CategoricalPlotter):
@@ -93,10 +21,22 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
                  width, inner, split, dodge, orient, linewidth,
                  color, palette, saturation, offset):
 
-        self.establish_variables(x, y, hue, data, orient, order, hue_order)
-        self.establish_colors(color, palette, saturation)
-        self.estimate_densities(bw, cut, scale, scale_hue, gridsize)
+        variables = dict(x=x, y=y, hue=hue)
 
+        super().__init__(
+            data=data,
+            variables=variables,
+            order=order,
+            orient=orient,
+            color=color,
+        )
+    
+        self.map_hue(palette=palette, order=hue_order, saturation=saturation)
+
+        self.bw = bw
+        self.cut = cut
+        self.scale = scale
+        self.scale_hue = scale_hue
         self.gridsize = gridsize
         self.width = width
         self.dodge = dodge
@@ -111,7 +51,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
                 raise ValueError(err)
         self.inner = inner
 
-        if split and self.hue_names is not None and len(self.hue_names) < 2:
+        if split and "hue" in self.variables and len(self.var_levels.get('hue', [])) < 2:
             msg = "There must be at least two hue levels to use `split`.'"
             raise ValueError(msg)
         self.split = split
@@ -120,133 +60,87 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             linewidth = mpl.rcParams["lines.linewidth"]
         self.linewidth = linewidth
 
+        self.gray = self._complement_color("auto", color, self._hue_map)
+        # Fallback to explicit gray if complement color is not working
+        if self.gray is None or self.gray == "none":
+            self.gray = "0.3"
+
     def estimate_densities(self, bw, cut, scale, scale_hue, gridsize):
         """Find the support and density for all of the data."""
         # Initialize data structures to keep track of plotting data
-        if self.hue_names is None:
-            support = []
-            density = []
-            counts = np.zeros(len(self.plot_data))
-            max_density = np.zeros(len(self.plot_data))
+        violin_data = []
+        
+        # In the modern seaborn structure, the orient might be the actual axis name
+        # Let's determine based on which variable is categorical vs numeric
+        if "x" in self.variables and "y" in self.variables:
+            # Determine orientation: for vertical plots x=categorical, y=numeric
+            # For horizontal plots x=numeric, y=categorical
+            # Note: modern seaborn sets self.orient to 'y' for horizontal plots, 'x' for vertical
+            if self.orient == "y":
+                # Horizontal: x=numeric (values), y=categorical (groups)
+                value_variable = "x"
+                categorical_variable = "y"
+            else:
+                # Vertical: x=categorical (groups), y=numeric (values)
+                value_variable = "y"
+                categorical_variable = "x"
         else:
-            support = [[] for _ in self.plot_data]
-            density = [[] for _ in self.plot_data]
-            size = len(self.group_names), len(self.hue_names)
-            counts = np.zeros(size)
-            max_density = np.zeros(size)
+            # Fallback to original logic
+            value_variable = "y" if self.orient == "v" else "x"
+            categorical_variable = "x" if self.orient == "v" else "y"
+        grouping_vars = [categorical_variable]  # e.g., ['x']
+        if "hue" in self.variables:
+            grouping_vars.append("hue")
 
-        for i, group_data in enumerate(self.plot_data):
+        for group_name, group_df in self.plot_data.groupby(grouping_vars):
+            # Extract numeric values and remove NaN values
+            values = group_df[value_variable]
+            kde_data = values.dropna()
 
-            # Option 1: we have a single level of grouping
-            # --------------------------------------------
-
-            if self.plot_hues is None:
-
-                # Strip missing datapoints
-                kde_data = sns.utils.remove_na(group_data)
-
-                # Handle special case of no data at this level
-                if kde_data.size == 0:
-                    support.append(np.array([]))
-                    density.append(np.array([1.]))
-                    counts[i] = 0
-                    max_density[i] = 0
-                    continue
-
-                # Handle special case of a single unique datapoint
-                elif np.unique(kde_data).size == 1:
-                    support.append(np.unique(kde_data))
-                    density.append(np.array([1.]))
-                    counts[i] = 1
-                    max_density[i] = 0
-                    continue
-
-                # Fit the KDE and get the used bandwidth size
+            # Handle edge cases for this specific violin
+            if kde_data.size == 0:
+                support_i = np.array([])
+                density_i = np.array([1.])
+            elif np.unique(kde_data).size == 1:
+                support_i = np.unique(kde_data)
+                density_i = np.array([1.])
+            else:
+                # Fit the KDE for this violin's data
                 kde, bw_used = self.fit_kde(kde_data, bw)
-
-                # Determine the support grid and get the density over it
                 support_i = self.kde_support(kde_data, bw_used, cut, gridsize)
                 density_i = kde.evaluate(support_i)
+            
+            # 4. Store all results for this one violin in a dictionary
+            violin_data.append({
+                "group_name": group_name,
+                "support": support_i,
+                "density": density_i,
+                "observations": kde_data,
+                "max_density": density_i.max() if density_i.size > 1 else 0,
+                "count": kde_data.size,
+            })
 
-                # Update the data structures with these results
-                support.append(support_i)
-                density.append(density_i)
-                counts[i] = kde_data.size
-                max_density[i] = density_i.max()
+        # 5. Store the complete results list first
+        self.violin_data = violin_data
 
-            # Option 2: we have nested grouping by a hue variable
-            # ---------------------------------------------------
-
-            else:
-                for j, hue_level in enumerate(self.hue_names):
-
-                    # Handle special case of no data at this category level
-                    if not group_data.size:
-                        support[i].append(np.array([]))
-                        density[i].append(np.array([1.]))
-                        counts[i, j] = 0
-                        max_density[i, j] = 0
-                        continue
-
-                    # Select out the observations for this hue level
-                    hue_mask = self.plot_hues[i] == hue_level
-
-                    # Strip missing datapoints
-                    kde_data = sns.utils.remove_na(group_data[hue_mask])
-
-                    # Handle special case of no data at this level
-                    if kde_data.size == 0:
-                        support[i].append(np.array([]))
-                        density[i].append(np.array([1.]))
-                        counts[i, j] = 0
-                        max_density[i, j] = 0
-                        continue
-
-                    # Handle special case of a single unique datapoint
-                    elif np.unique(kde_data).size == 1:
-                        support[i].append(np.unique(kde_data))
-                        density[i].append(np.array([1.]))
-                        counts[i, j] = 1
-                        max_density[i, j] = 0
-                        continue
-
-                    # Fit the KDE and get the used bandwidth size
-                    kde, bw_used = self.fit_kde(kde_data, bw)
-
-                    # Determine the support grid and get the density over it
-                    support_ij = self.kde_support(kde_data, bw_used,
-                                                  cut, gridsize)
-                    density_ij = kde.evaluate(support_ij)
-
-                    # Update the data structures with these results
-                    support[i].append(support_ij)
-                    density[i].append(density_ij)
-                    counts[i, j] = kde_data.size
-                    max_density[i, j] = density_ij.max()
-
-        # Scale the height of the density curve.
-        # For a violinplot the density is non-quantitative.
-        # The objective here is to scale the curves relative to 1 so that
-        # they can be multiplied by the width parameter during plotting.
-
+        # 6. Apply scaling
         if scale == "area":
-            self.scale_area(density, max_density, scale_hue)
+            self.scale_area(scale_hue)
 
         elif scale == "width":
-            self.scale_width(density)
+            self.scale_width
 
         elif scale == "count":
-            self.scale_count(density, counts, scale_hue)
+            self.scale_count(scale_hue)
 
         else:
             raise ValueError("scale method '{}' not recognized".format(scale))
 
-        # Set object attributes that will be used while plotting
-        self.support = support
-        self.density = density
-
     def fit_kde(self, x, bw):
         """Estimate a KDE for a vector of data with flexible bandwidth."""
+        # Ensure x is a numpy array of floats
+        x = np.asarray(x, dtype=float)
+
         # Allow for the use of old scipy where `bw` is fixed
         try:
             kde = stats.gaussian_kde(x, bw)
@@ -274,29 +168,48 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         support_max = x.max() + bw * cut
         return np.linspace(support_min, support_max, gridsize)
 
-    def scale_area(self, density, max_density, scale_hue):
-        """Scale the relative area under the KDE curve.
-        This essentially preserves the "standard" KDE scaling, but the
-        resulting maximum density will be 1 so that the curve can be
-        properly multiplied by the violin width.
-        """
-        if self.hue_names is None:
-            for d in density:
-                if d.size > 1:
-                    d /= max_density.max()
-        else:
-            for i, group in enumerate(density):
-                for d in group:
-                    if scale_hue:
-                        max = max_density[i].max()
-                    else:
-                        max = max_density.max()
-                    if d.size > 1:
-                        d /= max
+    def scale_area(self, scale_hue):
+        """Scale the densities in self.violin_data to preserve area."""
+
+        # First, find the overall maximum density if we need it
+        global_max_density = 1
+        if not scale_hue:
+            # Get a list of all max_densities and find the true global maximum
+            all_max_densities = [d["max_density"] for d in self.violin_data]
+            if all_max_densities:
+                global_max_density = max(all_max_densities)
+
+        # If scaling by hue, we need to find the max density within each category
+        if "hue" in self.variables and scale_hue:
+            # Use pandas to quickly find the max density for each x-category
+            import pandas as pd
+            df = pd.DataFrame(self.violin_data)
+            # The group_name is a tuple like ('Sad', 'Friend'), self.orient is 'x'
+            df['orient_cat'] = [name[0] if isinstance(name, tuple) else name for name in df['group_name']]
+            category_maxes = df.groupby('orient_cat')['max_density'].transform('max')
+
+        # Now, loop through the list of dictionaries and update the density
+        for i, violin in enumerate(self.violin_data):
+            density = violin["density"]
+            if density.size <= 1:
+                continue
+
+            if "hue" not in self.variables:
+                # Case 1: No hue, scale by the global max
+                scaler = max([d["max_density"] for d in self.violin_data])
+            elif scale_hue:
+                # Case 2: Hue is present, scale within each x-category
+                scaler = category_maxes[i]
+            else:
+                # Case 3: Hue is present, but scale by the global max
+                scaler = global_max_density
+
+            if scaler > 0:
+                violin["density"] /= scaler
 
     def scale_width(self, density):
         """Scale each density curve to the same height."""
-        if self.hue_names is None:
+        if "hue" not in self.variables:
             for d in density:
                 d /= d.max()
         else:
@@ -304,216 +217,269 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
                 for d in group:
                     d /= d.max()
 
-    def scale_count(self, density, counts, scale_hue):
-        """Scale each density curve by the number of observations."""
-        if self.hue_names is None:
-            if counts.max() == 0:
-                d = 0
+    def scale_count(self, scale_hue):
+        """Scale each density curve by observation count in self.violin_data."""
+
+        # --- 1. Find the maximum counts needed for scaling ---
+
+        # Get a list of all counts to find the global maximum
+        all_counts = [d["count"] for d in self.violin_data]
+        global_max_count = max(all_counts) if all_counts else 1
+
+        # If scaling by hue, find the max count within each primary category
+        if "hue" in self.variables and scale_hue:
+            import pandas as pd
+            df = pd.DataFrame(self.violin_data)
+            # The group_name can be a tuple like ('Sad', 'Friend') or just 'Sad'
+            # We extract the first element to get the primary category
+            df['orient_cat'] = [
+                name[0] if isinstance(name, tuple) else name for name in df['group_name']
+            ]
+            # Use pandas `transform` to get the max count for each violin's category
+            category_max_counts = df.groupby('orient_cat')['count'].transform('max')
+
+        # --- 2. Loop through violins and apply the scaling ---
+
+        for i, violin in enumerate(self.violin_data):
+            density = violin["density"]
+            max_density = violin["max_density"]
+            count = violin["count"]
+
+            # First, normalize the violin to its own max height of 1
+            if max_density > 0:
+                normalized_density = density / max_density
             else:
-                for count, d in zip(counts, density):
-                    d /= d.max()
-                    d *= count / counts.max()
-        else:
-            for i, group in enumerate(density):
-                for j, d in enumerate(group):
-                    if counts[i].max() == 0:
-                        d = 0
-                    else:
-                        count = counts[i, j]
-                        if scale_hue:
-                            scaler = count / counts[i].max()
-                        else:
-                            scaler = count / counts.max()
-                        d /= d.max()
-                        d *= scaler
+                normalized_density = density
+
+            # Next, determine the scaler based on observation counts
+            if "hue" not in self.variables:
+                # Case 1: No hue, scale by the global max count
+                scaler = count / global_max_count
+            elif scale_hue:
+                # Case 2: Hue is present, scale within each x-category
+                max_count_in_category = category_max_counts[i]
+                scaler = count / max_count_in_category if max_count_in_category > 0 else 0
+            else:
+                # Case 3: Hue is present, but scale by the global max count
+                scaler = count / global_max_count
+
+            # Apply the final scaling
+            violin["density"] = normalized_density * scaler
 
     @property
-    def dwidth(self):
+    def scale_width(self):
+        """Scale each density curve to the same height in self.violin_data."""
+        for violin in self.violin_data:
+            density = violin["density"]
+            max_density = violin["max_density"]
 
-        if self.hue_names is None or not self.dodge:
-            return self.width / 2
-        elif self.split:
-            return self.width / 2
-        else:
-            return self.width / (2 * len(self.hue_names))
+            # Normalize the density by its own maximum to make the new max 1
+            if max_density > 0:
+                violin["density"] = density / max_density
 
     def draw_violins(self, ax, kws):
         """Draw the violins onto `ax`."""
-        fill_func = ax.fill_betweenx if self.orient == "v" else ax.fill_between
-        for i, group_data in enumerate(self.plot_data):
+        # Determine correct orientation based on variable types
+        # For vertical plots: categorical on x-axis, numeric on y-axis -> use fill_betweenx
+        # For horizontal plots: numeric on x-axis, categorical on y-axis -> use fill_between
+        if "x" in self.variables and "y" in self.variables:
+            if self.orient == "y":
+                # Horizontal: x=numeric, y=categorical -> use fill_between
+                fill_func = ax.fill_between
+            else:
+                # Vertical: x=categorical, y=numeric -> use fill_betweenx
+                fill_func = ax.fill_betweenx
+        else:
+            # Fallback to original logic
+            fill_func = ax.fill_betweenx if self.orient == "v" else ax.fill_between
 
-            kws.update(dict(edgecolor=self.gray, linewidth=self.linewidth))
+        # Set up default drawing properties
+        kws.update(dict(edgecolor=self.gray, linewidth=self.linewidth))
 
-            # Option 1: we have a single level of grouping
-            # --------------------------------------------
+        # Calculate width for violin drawing
+        if not hasattr(self, 'dwidth'):
+            self.dwidth = self.width / 2
 
-            if self.plot_hues is None:
+        # Single loop through violin_data - handles both hue and no-hue cases
+        for violin in self.violin_data:
+            support = violin["support"]
+            density = violin["density"]
+            observations = violin["observations"]
+            group_name = violin["group_name"]
 
-                support, density = self.support[i], self.density[i]
+            # Handle special case of no observations
+            if support.size == 0:
+                continue
 
-                # Handle special case of no observations in this bin
-                if support.size == 0:
-                    continue
+            # Handle special case of a single observation
+            if support.size == 1:
+                val = np.ndarray.item(support)
+                d = np.ndarray.item(density)
+                center = self._get_center_position(group_name)
+                if self.split and "hue" in self.variables:
+                    d = d / 2
+                self.draw_single_observation(ax, center, val, d)
+                continue
 
-                # Handle special case of a single observation
-                elif support.size == 1:
-                    val = np.ndarray.item(support)
-                    d = np.ndarray.item(density)
-                    self.draw_single_observation(ax, i, val, d)
-                    continue
+            # Get center position and color for this violin
+            center = self._get_center_position(group_name)
+            color = self._get_violin_color(group_name)
 
-                # Draw the violin for this group
-                grid = np.ones(self.gridsize) * i
+            # Draw the violin polygon
+            grid = np.ones(len(support)) * center
+
+            if self.split and "hue" in self.variables:
+                # Split violins: determine which side based on hue level
+                hue_level = group_name[1] if isinstance(group_name, tuple) else None
+                hue_levels = self.var_levels.get('hue', [])
+                hue_idx = list(hue_levels).index(hue_level) if hue_level in hue_levels else 0
+
+                if hue_idx == 0:  # Left side
+                    fill_func(support,
+                              -self.offset + grid - density * self.dwidth,
+                              -self.offset + grid,
+                              facecolor=color, **kws)
+                else:  # Right side
+                    fill_func(support,
+                              -self.offset + grid,
+                              -self.offset + grid + density * self.dwidth,
+                              facecolor=color, **kws)
+            else:
+                # Half violin (left side only) - this is the core feature of half violins
+                # The violin should extend from the center to the left, with offset applied
                 fill_func(support,
                           -self.offset + grid - density * self.dwidth,
                           -self.offset + grid,
-                          facecolor=self.colors[i],
-                          **kws)
+                          facecolor=color, **kws)
 
-                # Draw the interior representation of the data
-                if self.inner is None:
-                    continue
+            # Add legend data for hue plots (but only once per hue level)
+            if "hue" in self.variables and isinstance(group_name, tuple):
+                hue_level = group_name[1]
+                category_level = group_name[0]
+                # Add legend only for the first category of each hue level
+                # Determine categorical variable - typically x for vertical violins
+                if "x" in self.variables and "y" in self.variables:
+                    categorical_var = "x"
+                else:
+                    categorical_var = "x" if self.orient == "v" else "y"
+                if category_level == self.var_levels[categorical_var][0]:
+                    self.add_legend_data(ax, color, hue_level)
 
-                # Get a nan-free vector of datapoints
-                violin_data = sns.utils.remove_na(group_data)
+            # Draw the interior representation of the data
+            if self.inner is not None:
+                self._draw_violin_interior(ax, violin, center)
 
-                # Draw box and whisker information
-                if self.inner.startswith("box"):
-                    self.draw_box_lines(ax, violin_data, support, density, i)
+    def _get_center_position(self, group_name):
+        """Get the numeric position on the categorical axis for a violin."""
+        # Extract the primary category from group_name
+        if "hue" in self.variables and isinstance(group_name, tuple) and len(group_name) >= 2:
+            # With hue: group_name is like ('CategoryA', 'HueLevel1')
+            primary_cat = group_name[0]
+            hue_level = group_name[1]
 
-                # Draw quartile lines
-                elif self.inner.startswith("quart"):
-                    self.draw_quartiles(ax, violin_data, support, density, i)
-
-                # Draw stick observations
-                elif self.inner.startswith("stick"):
-                    self.draw_stick_lines(ax, violin_data, support, density, i)
-
-                # Draw point observations
-                elif self.inner.startswith("point"):
-                    self.draw_points(ax, violin_data, i)
-
-            # Option 2: we have nested grouping by a hue variable
-            # ---------------------------------------------------
-
+            # Get base position
+            # Determine categorical variable based on orientation
+            if "x" in self.variables and "y" in self.variables:
+                if self.orient == "y":
+                    # Horizontal: y is categorical
+                    categorical_var = "y"
+                else:
+                    # Vertical: x is categorical
+                    categorical_var = "x"
             else:
-                offsets = self.hue_offsets
-                for j, hue_level in enumerate(self.hue_names):
+                categorical_var = "x" if self.orient == "v" else "y"
+            base_pos = list(self.var_levels[categorical_var]).index(primary_cat)
 
-                    support, density = self.support[i][j], self.density[i][j]
-                    kws["facecolor"] = self.colors[j]
+            # Add hue offset if not splitting
+            if not self.split:
+                hue_levels = self.var_levels['hue']
+                hue_idx = list(hue_levels).index(hue_level)
+                # Calculate offset based on hue position
+                n_hues = len(hue_levels)
+                offset_range = 0.8 * self.width / n_hues
+                center_offset = (hue_idx - (n_hues - 1) / 2) * offset_range
+                return base_pos + center_offset
+            else:
+                return base_pos
+        else:
+            # No hue: group_name is just the category
+            if isinstance(group_name, tuple):
+                primary_cat = group_name[0]
+            else:
+                primary_cat = group_name
+            # Determine categorical variable based on orientation
+            if "x" in self.variables and "y" in self.variables:
+                if self.orient == "y":
+                    # Horizontal: y is categorical
+                    categorical_var = "y"
+                else:
+                    # Vertical: x is categorical
+                    categorical_var = "x"
+            else:
+                categorical_var = "x" if self.orient == "v" else "y"
+            return list(self.var_levels[categorical_var]).index(primary_cat)
 
-                    # Add legend data, but just for one set of violins
-                    if not i:
-                        self.add_legend_data(ax, self.colors[j], hue_level)
+    def _get_violin_color(self, group_name):
+        """Get the color for a violin based on its group name."""
+        if "hue" in self.variables and isinstance(group_name, tuple) and len(group_name) >= 2:
+            # With hue: use hue mapping
+            hue_level = group_name[1]
+            return self._hue_map(hue_level)
+        else:
+            # No hue: use default color or create a simple palette
+            # For modern seaborn, we need to create colors manually
+            import seaborn as sns
+            if isinstance(group_name, tuple):
+                primary_cat = group_name[0]
+            else:
+                primary_cat = group_name
 
-                    # Handle the special case where we have no observations
-                    if support.size == 0:
-                        continue
+            # Determine categorical variable based on orientation
+            if "x" in self.variables and "y" in self.variables:
+                if self.orient == "y":
+                    # Horizontal: y is categorical
+                    categorical_var = "y"
+                else:
+                    # Vertical: x is categorical
+                    categorical_var = "x"
+            else:
+                categorical_var = "x" if self.orient == "v" else "y"
 
-                    # Handle the special case where we have one observation
-                    elif support.size == 1:
-                        val = np.ndarray.item(support)
-                        d = np.ndarray.item(density)
-                        if self.split:
-                            d = d / 2
-                        at_group = i + offsets[j]
-                        self.draw_single_observation(ax, at_group, val, d)
-                        continue
+            # Get index and create color palette if needed
+            cat_idx = list(self.var_levels[categorical_var]).index(primary_cat)
+            n_colors = len(self.var_levels[categorical_var])
 
-                    # Option 2a: we are drawing a single split violin
-                    # -----------------------------------------------
+            # Use a default palette
+            if not hasattr(self, '_category_colors'):
+                self._category_colors = sns.color_palette("Set2", n_colors)
 
-                    if self.split:
+            return self._category_colors[cat_idx]
 
-                        grid = np.ones(self.gridsize) * i
-                        if j:
-                            fill_func(support,
-                                      -self.offset + grid - density * self.dwidth,
-                                      -self.offset + grid,
-                                      **kws)
-                        else:
-                            fill_func(support,
-                                      -self.offset + grid - density * self.dwidth,
-                                      -self.offset + grid,
-                                      **kws)
+    def _draw_violin_interior(self, ax, violin, center):
+        """Draw interior elements (box, quartiles, points, or sticks) for a violin."""
+        observations = violin["observations"]
+        support = violin["support"]
+        density = violin["density"]
 
-                        # Draw the interior representation of the data
-                        if self.inner is None:
-                            continue
+        # Handle split violins
+        split_side = None
+        if self.split and "hue" in self.variables:
+            group_name = violin["group_name"]
+            if isinstance(group_name, tuple):
+                hue_level = group_name[1]
+                hue_levels = self.var_levels.get('hue', [])
+                hue_idx = list(hue_levels).index(hue_level) if hue_level in hue_levels else 0
+                split_side = "left" if hue_idx == 0 else "right"
 
-                        # Get a nan-free vector of datapoints
-                        hue_mask = self.plot_hues[i] == hue_level
-                        violin_data = sns.utils.remove_na(group_data[hue_mask])
-
-                        # Draw quartile lines
-                        if self.inner.startswith("quart"):
-                            self.draw_quartiles(ax, violin_data,
-                                                support, density, i,
-                                                ["left", "right"][j])
-
-                        # Draw stick observations
-                        elif self.inner.startswith("stick"):
-                            self.draw_stick_lines(ax, violin_data,
-                                                  support, density, i,
-                                                  ["left", "right"][j])
-
-                        # The box and point interior plots are drawn for
-                        # all data at the group level, so we just do that once
-                        if not j:
-                            continue
-
-                        # Get the whole vector for this group level
-                        violin_data = sns.utils.remove_na(group_data)
-
-                        # Draw box and whisker information
-                        if self.inner.startswith("box"):
-                            self.draw_box_lines(ax, violin_data,
-                                                support, density, i)
-
-                        # Draw point observations
-                        elif self.inner.startswith("point"):
-                            self.draw_points(ax, violin_data, i)
-
-                    # Option 2b: we are drawing full nested violins
-                    # -----------------------------------------------
-
-                    else:
-                        grid = np.ones(self.gridsize) * (i + offsets[j])
-                        fill_func(support,
-                                  -self.offset + grid - density * self.dwidth,
-                                  -self.offset + grid,
-                                  **kws)
-
-                        # Draw the interior representation
-                        if self.inner is None:
-                            continue
-
-                        # Get a nan-free vector of datapoints
-                        hue_mask = self.plot_hues[i] == hue_level
-                        violin_data = sns.utils.remove_na(group_data[hue_mask])
-
-                        # Draw box and whisker information
-                        if self.inner.startswith("box"):
-                            self.draw_box_lines(ax, violin_data,
-                                                support, density,
-                                                i + offsets[j])
-
-                        # Draw quartile lines
-                        elif self.inner.startswith("quart"):
-                            self.draw_quartiles(ax, violin_data,
-                                                support, density,
-                                                i + offsets[j])
-
-                        # Draw stick observations
-                        elif self.inner.startswith("stick"):
-                            self.draw_stick_lines(ax, violin_data,
-                                                  support, density,
-                                                  i + offsets[j])
-
-                        # Draw point observations
-                        elif self.inner.startswith("point"):
-                            self.draw_points(ax, violin_data, i + offsets[j])
+        # Draw interior elements based on inner style
+        if self.inner.startswith("box"):
+            self.draw_box_lines(ax, observations, support, density, center)
+        elif self.inner.startswith("quart"):
+            self.draw_quartiles(ax, observations, support, density, center, split_side)
+        elif self.inner.startswith("stick"):
+            self.draw_stick_lines(ax, observations, support, density, center, split_side)
+        elif self.inner.startswith("point"):
+            self.draw_points(ax, observations, center)
 
     def draw_single_observation(self, ax, at_group, at_quant, density):
         """Draw a line to mark a single observation."""
@@ -563,7 +529,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
                        edgecolor=self.gray,
                        s=np.square(self.linewidth * 2))
 
-    def draw_quartiles(self, ax, data, support, density, center, split=False):
+    def draw_quartiles(self, ax, data, support, density, center, split=None):
         """Draw the quartiles as lines at width of density."""
         q25, q50, q75 = np.percentile(data, [25, 50, 75])
 
@@ -591,7 +557,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             ax.scatter(data, grid, **kws)
 
     def draw_stick_lines(self, ax, data, support, density,
-                         center, split=False):
+                         center, split=None):
         """Draw individual observations as sticks at width of density."""
         for val in data:
             self.draw_to_density(ax, center, val, support, density, split,
@@ -621,37 +587,62 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
 
     def plot(self, ax, kws):
         """Make the violin plot."""
+        # Estimate densities for all violins first
+        self.estimate_densities(self.bw, self.cut, self.scale, self.scale_hue, self.gridsize)
+
         self.draw_violins(ax, kws)
-        self.annotate_axes(ax)
         if self.orient == "h":
             ax.invert_yaxis()
 
-
 def stripplot(x=None, y=None, hue=None, data=None, order=None, hue_order=None,
-              jitter=True, dodge=False, orient=None, color=None, palette=None, move = 0,
+              jitter=True, dodge=False, orient=None, color=None, palette=None, move=0,
               size=5, edgecolor="gray", linewidth=0, ax=None, width=.8, **kwargs):
-
+    """
+    A wrapper around seaborn's stripplot that adds a `move` parameter
+    and preserves specific style defaults.
+    """
+    # 1. Handle legacy `split` argument if necessary
     if "split" in kwargs:
         dodge = kwargs.pop("split")
-        msg = "The `split` parameter has been renamed to `dodge`."
-        warnings.warn(msg, UserWarning)
+        warnings.warn("The `split` parameter has been renamed to `dodge`.", UserWarning)
 
-    plotter = _StripPlotter(x, y, hue, data, order, hue_order,
-                            jitter, dodge, orient, color, palette, width, move)
+    # 2. Get the current axes if one isn't provided
     if ax is None:
         ax = plt.gca()
 
-    kwargs.setdefault("zorder", 3)
-    size = kwargs.get("s", size)
+    # 3. Apply old version's smart parameter processing
     if linewidth is None:
         linewidth = size / 10
     if edgecolor == "gray":
-        edgecolor = plotter.gray
-    kwargs.update(dict(s=size ** 2,
-                       edgecolor=edgecolor,
-                       linewidth=linewidth))
+        # Convert "gray" string to actual gray color like old version did
+        edgecolor = "0.3"  # This matches the gray color used in old version
 
-    plotter.plot(ax, kwargs)
+    # 4. Call the official seaborn stripplot function.
+    #    We pass all standard arguments directly to it.
+    sns.stripplot(x=x, y=y, hue=hue, data=data, order=order, hue_order=hue_order,
+                  jitter=jitter, dodge=dodge, orient=orient, color=color, palette=palette,
+                  size=size, edgecolor=edgecolor, linewidth=linewidth, ax=ax,
+                  **kwargs)
+
+    # 4. Apply the custom `move` functionality if needed
+    if move != 0:
+        # The stripplot artists are in `ax.collections`.
+        # We assume the last one added is the one we want to move.
+        if ax.collections:
+            points_collection = ax.collections[-1]
+            offsets = points_collection.get_offsets()
+
+            # Check orientation to decide which axis to shift
+            if orient in ['h', 'y']:
+                # Horizontal plot: move the y-positions
+                offsets[:, 1] += move
+            else:
+                # Vertical plot: move the x-positions
+                offsets[:, 0] += move
+            
+            points_collection.set_offsets(offsets)
+
+    # 5. Return the axes object
     return ax
 
 
@@ -677,7 +668,7 @@ def RainCloud(x = None, y = None, hue = None, data = None,
               order = None, hue_order = None,
               orient = "v", width_viol = .7, width_box = .15,
               palette = "Set2", bw = .2, linewidth = 1, cut = 0.,
-              scale = "area", jitter = 1, move = 0., offset = None,
+              scale = "area", jitter = True, move = 0., offset = None,
               point_size = 3, ax = None, pointplot = False,
               alpha = None, dodge = False, linecolor = 'red', **kwargs):
 
@@ -714,7 +705,7 @@ def RainCloud(x = None, y = None, hue = None, data = None,
         # f, ax = plt.subplots(figsize = figsize) old version had this
 
     if offset is None:
-        offset = max(width_box/1.8, .15) + .05
+        offset = max(width_box/1.8, .15) + 0.05
     n_plots = 3
     split = False
     boxcolor = "black"

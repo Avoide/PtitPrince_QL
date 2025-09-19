@@ -28,9 +28,9 @@ setup(name='ptitprince',
           'Operating System :: MacOS',
       ],
       install_requires=[
-          'matplotlib<3.9',
+          'matplotlib>=3.9',
           'numpy>=1.16',
           'scipy',
-          'seaborn==0.11',
+          'seaborn==0.13.2',
       ],
       zip_safe=False)
