@@ -652,6 +652,7 @@ def stripplot(
 
     # 4. Call the official seaborn stripplot function.
     #    We pass all standard arguments directly to it.
+    pre_strip_collections = len(ax.collections)
     sns.stripplot(x=x, y=y, hue=hue, data=data, order=order, hue_order=hue_order,
                   jitter=jitter, dodge=dodge, orient=orient, color=color, palette=palette,
                   size=size, edgecolor=edgecolor, linewidth=linewidth, ax=ax,
@@ -659,12 +660,19 @@ def stripplot(
 
     # 4. Apply the custom `move` functionality if needed
     if move != 0:
-        # Note: This assumes that the collection created by stripplot is the
-        # last one added to the axes. This is generally true but could be
-        # brittle if the axes already contain other collections.
-        if ax.collections:
-            points_collection = ax.collections[-1]
+        new_collections = ax.collections[pre_strip_collections:]
+
+        # Iterate over every new PathCollection emitted by seaborn.stripplot.
+        for points_collection in new_collections:
+            if not hasattr(points_collection, "get_offsets"):
+                continue
+
             offsets = points_collection.get_offsets()
+            if offsets is None or len(offsets) == 0:
+                continue
+
+            # Matplotlib can return a masked array; operate on a numpy copy.
+            offsets = np.asarray(offsets)
 
             # Check orientation to decide which axis to shift
             if orient in ['h', 'y']:
