@@ -367,18 +367,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
                           -self.offset + grid,
                           facecolor=color, **kws)
 
-            # Add legend data for hue plots (but only once per hue level)
-            if "hue" in self.variables and isinstance(group_name, tuple):
-                hue_level = group_name[1]
-                category_level = group_name[0]
-                # Add legend only for the first category of each hue level
-                # Determine categorical variable - typically x for vertical violins
-                if "x" in self.variables and "y" in self.variables:
-                    categorical_var = "x"
-                else:
-                    categorical_var = "x" if self.orient == "v" else "y"
-                if category_level == self.var_levels[categorical_var][0]:
-                    self.add_legend_data(ax, color, hue_level)
+            # Legend handling moved to plot() method using modern seaborn API
 
             # Draw the interior representation of the data
             if self.inner is not None:
@@ -405,17 +394,9 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
                 categorical_var = "x" if self.orient == "v" else "y"
             base_pos = list(self.var_levels[categorical_var]).index(primary_cat)
 
-            # Add hue offset if not splitting
-            if not self.split:
-                hue_levels = self.var_levels['hue']
-                hue_idx = list(hue_levels).index(hue_level)
-                # Calculate offset based on hue position
-                n_hues = len(hue_levels)
-                offset_range = 0.8 * self.width / n_hues
-                center_offset = (hue_idx - (n_hues - 1) / 2) * offset_range
-                return base_pos + center_offset
-            else:
-                return base_pos
+            # For raincloud plots, we don't want hue to affect positioning
+            # All violins should be positioned at the same offset relative to their category
+            return base_pos
         else:
             # No hue: group_name is just the category
             if isinstance(group_name, tuple):
@@ -602,10 +583,21 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
 
     def plot(self, ax, kws):
         """Make the violin plot."""
+        # Import the necessary helper from seaborn
+        from seaborn.utils import _get_patch_legend_artist
+
         # Estimate densities for all violins first
         self.estimate_densities(self.bw, self.cut, self.scale, self.scale_hue, self.gridsize)
 
         self.draw_violins(ax, kws)
+
+        # Configure the legend correctly using the modern Seaborn API
+        # Only configure legend if hue is present and required attributes exist
+        if "hue" in self.variables and hasattr(self, '_redundant_hue') and hasattr(self, 'input_format'):
+            legend_artist = _get_patch_legend_artist(fill=True)
+            common_kws = {"facecolor": "C0", "edgecolor": self.gray, "linewidth": self.linewidth}
+            self._configure_legend(ax, legend_artist, common_kws)
+
         if self.orient == "h":
             ax.invert_yaxis()
 
@@ -792,7 +784,8 @@ def RainCloud(
     boxcolor = "black"
     boxprops = {'facecolor': 'none', "zorder": 10}
     if hue is not None:
-        split = True
+        # Note: We keep split = False for raincloud plots even with hue
+        # This ensures all clouds face the same direction (left) as expected in raincloud plots
         boxcolor = palette
         boxprops = {"zorder": 10}
 
@@ -838,15 +831,11 @@ def RainCloud(
     # Add pointplot
     if pointplot:
         n_plots = 4
-        if hue is not None:
-            n_cat = len(np.unique(data[hue]))
-            sns.pointplot(x = x, y = y, hue = hue, data = data,
-                          orient = orient, order = order, hue_order = hue_order,
-                          dodge = width_box * (1 - 1 / n_cat), palette = palette, ax = ax, **kwpoint)
-        else:
-            sns.pointplot(x = x, y = y, hue = hue, data = data, color = linecolor,
-                           orient = orient, order = order, hue_order = hue_order,
-                           dodge = width_box/2., ax = ax, **kwpoint)
+        # For the thunder line, we always want a single line connecting means across categories
+        # We don't pass hue to pointplot to get one line, not separate lines per hue level
+        sns.pointplot(x = x, y = y, data = data, color = linecolor,
+                      orient = orient, order = order,
+                      linestyles='-', ax = ax, **kwpoint)
 
     # Prune the legend, add legend title
     if hue is not None:
