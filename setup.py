@@ -1,7 +1,7 @@
 from setuptools import find_packages, setup
 
 setup(name='ptitprince',
-      version='0.2.6',
+      version='0.3.0',
       description='A Python implementation of Rainclouds, originally on R, ggplot2. Written on top of seaborn.',
       long_description=open('README.md').read(),
       long_description_content_type='text/markdown',
