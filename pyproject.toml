@@ -1,0 +1,102 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ptitprince"
+version = "0.3.1"
+description = "A Python implementation of Rainclouds, originally on R, ggplot2. Written on top of seaborn."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+keywords = ["data visualization", "raincloud plots"]
+authors = [
+    { name = "Davide Poggiali", email = "davide.poggiali@unipd.it" },
+]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Scientific/Engineering",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Operating System :: MacOS",
+]
+dependencies = [
+    "matplotlib>=3.9",
+    "numpy>=1.16",
+    "scipy",
+    "seaborn>=0.13.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "nbval>=0.10",
+    "pytest-xdist>=3.0",
+    "ruff>=0.1.0",
+    "pre-commit>=3.0",
+]
+notebooks = [
+    "pandas>=1.0",
+    "nbconvert[all]",
+]
+
+[project.urls]
+Homepage = "https://github.com/pog87/PtitPrince"
+Repository = "https://github.com/pog87/PtitPrince"
+Issues = "https://github.com/pog87/PtitPrince/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ptitprince"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "F403",  # wildcard imports (needed for seaborn compatibility)
+    "E402",  # module level import not at top (notebooks)
+]
+
+[tool.coverage.run]
+source = ["ptitprince"]
+omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

@@ -1,4 +1,5 @@
 [![Python tests](https://github.com/pog87/PtitPrince/actions/workflows/python_tests.yml/badge.svg)](https://github.com/pog87/PtitPrince/actions/workflows/python_tests.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Latest PyPI release](https://img.shields.io/pypi/v/ptitprince.svg)](https://pypi.org/project/ptitprince/)
 [![Downloads](https://pepy.tech/badge/ptitprince)](https://pepy.tech/project/ptitprince)
 [![Latest conda-forge release](https://img.shields.io/conda/vn/conda-forge/ptitprince.svg)](https://anaconda.org/conda-forge/ptitprince/)
@@ -22,12 +23,6 @@ or via `conda`:
 
 ```
 conda install -c conda-forge ptitprince
-```
-
-or by cloning this repository and running the following from the root of it:
-
-```
-python setup.py install
 ```
 
 or directly from GitHub
@@ -57,6 +52,22 @@ Then I replicated the plots from the original post by [Micah Allen](https://web.
 Since then, the package has received some publicity, and is for example listed in ["awesome-python-data-science"](https://github.com/thomasjpfan/awesome-python-data-science).
 
 ### Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+#### v.0.3.1
+
+    * Modern packaging with pyproject.toml
+    * Comprehensive test suite with 89% coverage
+    * Python 3.9-3.12 support
+    * Removed default palette to avoid seaborn 0.14 warnings
+    * Pre-commit hooks and code quality improvements
+
+#### v.0.3.0
+
+    * Seaborn 0.13.2 compatibility
+    * Fixed raincloud component alignment with hue
+    * Improved dodge alignment and axis labels
 
 #### v.0.2.x
 

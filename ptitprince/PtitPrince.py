@@ -1,24 +1,22 @@
-from __future__ import division
-
 import warnings
 from colorsys import rgb_to_hls
-from typing import Optional, List, Union, Dict, Any
+from typing import Any, Optional, Union
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 import matplotlib.axes
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from scipy import stats
 from seaborn.categorical import *
-from seaborn.categorical import _CategoricalPlotter#, _CategoricalScatterPlotter
+from seaborn.categorical import _CategoricalPlotter  # , _CategoricalScatterPlotter
 
 __all__ = ["half_violinplot", "stripplot", "RainCloud"]
-__version__ = '0.3.0'
+__version__ = "0.3.1"
 
 # Define a type alias for data inputs for reusability
-DataInput = Optional[Union[pd.Series, np.ndarray, List]]
+DataInput = Optional[Union[pd.Series, np.ndarray, list]]
 
 # Legacy gray color constant for backward compatibility
 _LEGACY_GRAY = "0.3"  # Matches the gray color from older seaborn versions
@@ -35,17 +33,35 @@ def _get_complementary_gray(base_color, hue_map):
 
     unique_colors = np.unique(basis, axis=0)
     light_vals = [rgb_to_hls(*rgb[:3])[1] for rgb in unique_colors]
-    lum = min(light_vals) * .6
+    lum = min(light_vals) * 0.6
     return (lum, lum, lum)
 
 
 class _Half_ViolinPlotter(_CategoricalPlotter):
-
-    def __init__(self, x, y, hue, data, order, hue_order,
-                 bw, cut, scale, scale_hue, gridsize,
-                 width, inner, split, dodge, orient, linewidth,
-                 color, palette, saturation, offset):
-
+    def __init__(
+        self,
+        x,
+        y,
+        hue,
+        data,
+        order,
+        hue_order,
+        bw,
+        cut,
+        scale,
+        scale_hue,
+        gridsize,
+        width,
+        inner,
+        split,
+        dodge,
+        orient,
+        linewidth,
+        color,
+        palette,
+        saturation,
+        offset,
+    ):
         variables = dict(x=x, y=y, hue=hue)
 
         super().__init__(
@@ -82,15 +98,19 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         self.offset = offset
 
         if inner is not None:
-            if not any([inner.startswith("quart"),
-                        inner.startswith("box"),
-                        inner.startswith("stick"),
-                        inner.startswith("point")]):
-                err = "Inner style '{}' not recognized".format(inner)
+            if not any(
+                [
+                    inner.startswith("quart"),
+                    inner.startswith("box"),
+                    inner.startswith("stick"),
+                    inner.startswith("point"),
+                ]
+            ):
+                err = f"Inner style '{inner}' not recognized"
                 raise ValueError(err)
         self.inner = inner
 
-        if split and "hue" in self.variables and len(self.var_levels.get('hue', [])) < 2:
+        if split and "hue" in self.variables and len(self.var_levels.get("hue", [])) < 2:
             msg = "There must be at least two hue levels to use `split`.'"
             raise ValueError(msg)
         self.split = split
@@ -108,7 +128,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         """Find the support and density for all of the data."""
         # Initialize data structures to keep track of plotting data
         violin_data = []
-        
+
         # In the modern seaborn structure, the orient might be the actual axis name
         # Let's determine based on which variable is categorical vs numeric
         if "x" in self.variables and "y" in self.variables:
@@ -139,25 +159,27 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             # Handle edge cases for this specific violin
             if kde_data.size == 0:
                 support_i = np.array([])
-                density_i = np.array([1.])
+                density_i = np.array([1.0])
             elif np.unique(kde_data).size == 1:
                 support_i = np.unique(kde_data)
-                density_i = np.array([1.])
+                density_i = np.array([1.0])
             else:
                 # Fit the KDE for this violin's data
                 kde, bw_used = self.fit_kde(kde_data, bw)
                 support_i = self.kde_support(kde_data, bw_used, cut, gridsize)
                 density_i = kde.evaluate(support_i)
-            
+
             # 4. Store all results for this one violin in a dictionary
-            violin_data.append({
-                "group_name": group_name,
-                "support": support_i,
-                "density": density_i,
-                "observations": kde_data,
-                "max_density": density_i.max() if density_i.size > 1 else 0,
-                "count": kde_data.size,
-            })
+            violin_data.append(
+                {
+                    "group_name": group_name,
+                    "support": support_i,
+                    "density": density_i,
+                    "observations": kde_data,
+                    "max_density": density_i.max() if density_i.size > 1 else 0,
+                    "count": kde_data.size,
+                }
+            )
 
         # 5. Store the complete results list first
         self.violin_data = violin_data
@@ -173,7 +195,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             self.scale_count(scale_hue)
 
         else:
-            raise ValueError("scale method '{}' not recognized".format(scale))
+            raise ValueError(f"scale method '{scale}' not recognized")
 
     def fit_kde(self, x, bw):
         """Estimate a KDE for a vector of data with flexible bandwidth."""
@@ -186,8 +208,9 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         except TypeError:
             kde = stats.gaussian_kde(x)
             if bw != "scott":  # scipy default
-                msg = ("Ignoring bandwidth choice, "
-                       "please upgrade scipy to use a different bandwidth.")
+                msg = (
+                    "Ignoring bandwidth choice, please upgrade scipy to use a different bandwidth."
+                )
                 warnings.warn(msg, UserWarning)
 
         # Extract the numeric bandwidth from the KDE object
@@ -223,8 +246,10 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             # Use pandas to quickly find the max density for each x-category
             df = pd.DataFrame(self.violin_data)
             # The group_name is a tuple like ('Sad', 'Friend'), self.orient is 'x'
-            df['orient_cat'] = [name[0] if isinstance(name, tuple) else name for name in df['group_name']]
-            category_maxes = df.groupby('orient_cat')['max_density'].transform('max')
+            df["orient_cat"] = [
+                name[0] if isinstance(name, tuple) else name for name in df["group_name"]
+            ]
+            category_maxes = df.groupby("orient_cat")["max_density"].transform("max")
 
         # Now, loop through the list of dictionaries and update the density
         for i, violin in enumerate(self.violin_data):
@@ -245,7 +270,6 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             if scaler > 0:
                 violin["density"] /= scaler
 
-
     def scale_count(self, scale_hue):
         """Scale each density curve by observation count in self.violin_data."""
 
@@ -260,11 +284,11 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             df = pd.DataFrame(self.violin_data)
             # The group_name can be a tuple like ('Sad', 'Friend') or just 'Sad'
             # We extract the first element to get the primary category
-            df['orient_cat'] = [
-                name[0] if isinstance(name, tuple) else name for name in df['group_name']
+            df["orient_cat"] = [
+                name[0] if isinstance(name, tuple) else name for name in df["group_name"]
             ]
             # Use pandas `transform` to get the max count for each violin's category
-            category_max_counts = df.groupby('orient_cat')['count'].transform('max')
+            category_max_counts = df.groupby("orient_cat")["count"].transform("max")
 
         # --- 2. Loop through violins and apply the scaling ---
 
@@ -324,14 +348,13 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         kws.update(dict(edgecolor=self.gray, linewidth=self.linewidth))
 
         # Calculate width for violin drawing
-        if not hasattr(self, 'dwidth'):
+        if not hasattr(self, "dwidth"):
             self.dwidth = self.width / 2
 
         # Single loop through violin_data - handles both hue and no-hue cases
         for violin in self.violin_data:
             support = violin["support"]
             density = violin["density"]
-            observations = violin["observations"]
             group_name = violin["group_name"]
 
             # Handle special case of no observations
@@ -358,26 +381,35 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             if self.split and "hue" in self.variables:
                 # Split violins: determine which side based on hue level
                 hue_level = group_name[1] if isinstance(group_name, tuple) else None
-                hue_levels = self.var_levels.get('hue', [])
+                hue_levels = self.var_levels.get("hue", [])
                 hue_idx = list(hue_levels).index(hue_level) if hue_level in hue_levels else 0
 
                 if hue_idx == 0:  # Left side
-                    fill_func(support,
-                              -self.offset + grid - density * self.dwidth,
-                              -self.offset + grid,
-                              facecolor=color, **kws)
+                    fill_func(
+                        support,
+                        -self.offset + grid - density * self.dwidth,
+                        -self.offset + grid,
+                        facecolor=color,
+                        **kws,
+                    )
                 else:  # Right side
-                    fill_func(support,
-                              -self.offset + grid,
-                              -self.offset + grid + density * self.dwidth,
-                              facecolor=color, **kws)
+                    fill_func(
+                        support,
+                        -self.offset + grid,
+                        -self.offset + grid + density * self.dwidth,
+                        facecolor=color,
+                        **kws,
+                    )
             else:
                 # Half violin (left side only) - this is the core feature of half violins
                 # The violin should extend from the center to the left, with offset applied
-                fill_func(support,
-                          -self.offset + grid - density * self.dwidth,
-                          -self.offset + grid,
-                          facecolor=color, **kws)
+                fill_func(
+                    support,
+                    -self.offset + grid - density * self.dwidth,
+                    -self.offset + grid,
+                    facecolor=color,
+                    **kws,
+                )
 
             # Legend handling moved to plot() method using modern seaborn API
 
@@ -391,7 +423,6 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         if "hue" in self.variables and isinstance(group_name, tuple) and len(group_name) >= 2:
             # With hue: group_name is like ('CategoryA', 'HueLevel1')
             primary_cat = group_name[0]
-            hue_level = group_name[1]
 
             # Get base position
             # Determine categorical variable based on orientation
@@ -443,7 +474,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
 
             # 2. If user provided a palette, map each category to a color from the palette
             if self._user_palette is not None:
-                if not hasattr(self, '_resolved_palette'):
+                if not hasattr(self, "_resolved_palette"):
                     self._resolved_palette = sns.color_palette(self._user_palette)
 
                 # Get the category index to select the appropriate color
@@ -466,7 +497,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
                 return self._resolved_palette[cat_idx % len(self._resolved_palette)]
 
             # 3. Try to get color from _hue_map
-            if hasattr(self._hue_map, 'lookup_table') and self._hue_map.lookup_table:
+            if hasattr(self._hue_map, "lookup_table") and self._hue_map.lookup_table:
                 return list(self._hue_map.lookup_table.values())[0]
 
             # 4. Fallback to default color
@@ -484,7 +515,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             group_name = violin["group_name"]
             if isinstance(group_name, tuple):
                 hue_level = group_name[1]
-                hue_levels = self.var_levels.get('hue', [])
+                hue_levels = self.var_levels.get("hue", [])
                 hue_idx = list(hue_levels).index(hue_level) if hue_level in hue_levels else 0
                 split_side = "left" if hue_idx == 0 else "right"
 
@@ -502,15 +533,19 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         """Draw a line to mark a single observation."""
         d_width = density * self.dwidth
         if self.orient == "v":
-            ax.plot([at_group - d_width, at_group + d_width],
-                    [at_quant, at_quant],
-                    color=self.gray,
-                    linewidth=self.linewidth)
+            ax.plot(
+                [at_group - d_width, at_group + d_width],
+                [at_quant, at_quant],
+                color=self.gray,
+                linewidth=self.linewidth,
+            )
         else:
-            ax.plot([at_quant, at_quant],
-                    [at_group - d_width, at_group + d_width],
-                    color=self.gray,
-                    linewidth=self.linewidth)
+            ax.plot(
+                [at_quant, at_quant],
+                [at_group - d_width, at_group + d_width],
+                color=self.gray,
+                linewidth=self.linewidth,
+            )
 
     def draw_box_lines(self, ax, data, support, density, center):
         """Draw boxplot information at center of the density."""
@@ -522,49 +557,66 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
 
         # Draw a boxplot using lines and a point
         if self.orient == "v":
-            ax.plot([center, center], [h1, h2],
-                    linewidth=self.linewidth,
-                    color=self.gray)
-            ax.plot([center, center], [q25, q75],
-                    linewidth=self.linewidth * 3,
-                    color=self.gray)
-            ax.scatter(center, q50,
-                       zorder=3,
-                       color="white",
-                       edgecolor=self.gray,
-                       s=np.square(self.linewidth * 2))
+            ax.plot([center, center], [h1, h2], linewidth=self.linewidth, color=self.gray)
+            ax.plot([center, center], [q25, q75], linewidth=self.linewidth * 3, color=self.gray)
+            ax.scatter(
+                center,
+                q50,
+                zorder=3,
+                color="white",
+                edgecolor=self.gray,
+                s=np.square(self.linewidth * 2),
+            )
         else:
-            ax.plot([h1, h2], [center, center],
-                    linewidth=self.linewidth,
-                    color=self.gray)
-            ax.plot([q25, q75], [center, center],
-                    linewidth=self.linewidth * 3,
-                    color=self.gray)
-            ax.scatter(q50, center,
-                       zorder=3,
-                       color="white",
-                       edgecolor=self.gray,
-                       s=np.square(self.linewidth * 2))
+            ax.plot([h1, h2], [center, center], linewidth=self.linewidth, color=self.gray)
+            ax.plot([q25, q75], [center, center], linewidth=self.linewidth * 3, color=self.gray)
+            ax.scatter(
+                q50,
+                center,
+                zorder=3,
+                color="white",
+                edgecolor=self.gray,
+                s=np.square(self.linewidth * 2),
+            )
 
     def draw_quartiles(self, ax, data, support, density, center, split=None):
         """Draw the quartiles as lines at width of density."""
         q25, q50, q75 = np.percentile(data, [25, 50, 75])
 
-        self.draw_to_density(ax, center, q25, support, density, split,
-                             linewidth=self.linewidth,
-                             dashes=[self.linewidth * 1.5] * 2)
-        self.draw_to_density(ax, center, q50, support, density, split,
-                             linewidth=self.linewidth,
-                             dashes=[self.linewidth * 3] * 2)
-        self.draw_to_density(ax, center, q75, support, density, split,
-                             linewidth=self.linewidth,
-                             dashes=[self.linewidth * 1.5] * 2)
+        self.draw_to_density(
+            ax,
+            center,
+            q25,
+            support,
+            density,
+            split,
+            linewidth=self.linewidth,
+            dashes=[self.linewidth * 1.5] * 2,
+        )
+        self.draw_to_density(
+            ax,
+            center,
+            q50,
+            support,
+            density,
+            split,
+            linewidth=self.linewidth,
+            dashes=[self.linewidth * 3] * 2,
+        )
+        self.draw_to_density(
+            ax,
+            center,
+            q75,
+            support,
+            density,
+            split,
+            linewidth=self.linewidth,
+            dashes=[self.linewidth * 1.5] * 2,
+        )
 
     def draw_points(self, ax, data, center):
         """Draw individual observations as points at middle of the violin."""
-        kws = dict(s=np.square(self.linewidth * 2),
-                   color=self.gray,
-                   edgecolor=self.gray)
+        kws = dict(s=np.square(self.linewidth * 2), color=self.gray, edgecolor=self.gray)
 
         grid = np.ones(len(data)) * center
 
@@ -573,17 +625,17 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         else:
             ax.scatter(data, grid, **kws)
 
-    def draw_stick_lines(self, ax, data, support, density,
-                         center, split=None):
+    def draw_stick_lines(self, ax, data, support, density, center, split=None):
         """Draw individual observations as sticks at width of density."""
         for val in data:
-            self.draw_to_density(ax, center, val, support, density, split,
-                                 linewidth=self.linewidth * .5)
+            self.draw_to_density(
+                ax, center, val, support, density, split, linewidth=self.linewidth * 0.5
+            )
 
     def draw_to_density(self, ax, center, val, support, density, split, **kws):
         """Draw a line orthogonal to the value axis at width of density."""
         idx = np.argmin(np.abs(support - val))
-        width = self.dwidth * density[idx] * .99
+        width = self.dwidth * density[idx] * 0.99
 
         kws["color"] = self.gray
 
@@ -643,24 +695,25 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             common_kws = {"facecolor": "C0", "edgecolor": self.gray, "linewidth": self.linewidth}
             self._configure_legend(ax, legend_artist, common_kws)
 
+
 def stripplot(
     x: DataInput = None,
     y: DataInput = None,
     hue: DataInput = None,
     data: Optional[pd.DataFrame] = None,
-    order: Optional[List[str]] = None,
-    hue_order: Optional[List[str]] = None,
+    order: Optional[list[str]] = None,
+    hue_order: Optional[list[str]] = None,
     jitter: bool = True,
     dodge: bool = False,
     orient: Optional[str] = None,
     color: Optional[str] = None,
-    palette: Optional[Union[str, List, Dict]] = None,
+    palette: Optional[Union[str, list, dict]] = None,
     move: float = 0,
     size: float = 5,
     edgecolor: str = "gray",
     linewidth: float = 0,
     ax: Optional[matplotlib.axes.Axes] = None,
-    width: float = .8,
+    width: float = 0.8,
     **kwargs: Any,
 ) -> matplotlib.axes.Axes:
     """
@@ -687,16 +740,16 @@ def stripplot(
 
     # 3. Future-proof for seaborn 0.14: auto-set hue when palette is provided
     # This avoids the deprecation warning and ensures colors work correctly
-    legend = kwargs.pop('legend', None)  # Extract legend if passed in kwargs
+    legend = kwargs.pop("legend", None)  # Extract legend if passed in kwargs
     if palette is not None and hue is None and data is not None and x is not None and y is not None:
         # Only auto-set hue when x and y are column names (strings), not raw data arrays
         # This ensures we work correctly with both DataFrame and array inputs
         if isinstance(x, str) and isinstance(y, str):
             # Set hue to the categorical variable to enable per-category coloring
             # Determine which variable is categorical based on orient
-            if orient in ['h', 'y']:
+            if orient in ["h", "y"]:
                 hue = y
-            elif orient in ['v', 'x']:
+            elif orient in ["v", "x"]:
                 hue = x
             else:
                 # If orient not specified, infer from data types
@@ -721,12 +774,26 @@ def stripplot(
     # Build kwargs for seaborn, including legend if it was set
     seaborn_kwargs = kwargs.copy()
     if legend is not None:
-        seaborn_kwargs['legend'] = legend
+        seaborn_kwargs["legend"] = legend
 
-    sns.stripplot(x=x, y=y, hue=hue, data=data, order=order, hue_order=hue_order,
-                  jitter=jitter, dodge=dodge, orient=orient, color=color, palette=palette,
-                  size=size, edgecolor=edgecolor, linewidth=linewidth, ax=ax,
-                  **seaborn_kwargs)
+    sns.stripplot(
+        x=x,
+        y=y,
+        hue=hue,
+        data=data,
+        order=order,
+        hue_order=hue_order,
+        jitter=jitter,
+        dodge=dodge,
+        orient=orient,
+        color=color,
+        palette=palette,
+        size=size,
+        edgecolor=edgecolor,
+        linewidth=linewidth,
+        ax=ax,
+        **seaborn_kwargs,
+    )
 
     # 4. Fix dodge offset to match boxplot width when dodge=True
     # Seaborn's stripplot uses width=0.8 internally for dodge calculations,
@@ -757,7 +824,7 @@ def stripplot(
             offsets = np.asarray(offsets)
 
             # Determine which axis is categorical based on orient
-            if orient in ['h', 'y']:
+            if orient in ["h", "y"]:
                 cat_axis = 1  # y-axis
             else:
                 cat_axis = 0  # x-axis
@@ -799,7 +866,7 @@ def stripplot(
             offsets = np.asarray(offsets)
 
             # Check orientation to decide which axis to shift
-            if orient in ['h', 'y']:
+            if orient in ["h", "y"]:
                 # Horizontal plot: move the y-positions
                 offsets[:, 1] += move
             else:
@@ -817,31 +884,49 @@ def half_violinplot(
     y: DataInput = None,
     hue: DataInput = None,
     data: Optional[pd.DataFrame] = None,
-    order: Optional[List[str]] = None,
-    hue_order: Optional[List[str]] = None,
+    order: Optional[list[str]] = None,
+    hue_order: Optional[list[str]] = None,
     bw: Union[str, float] = "scott",
     cut: float = 2,
     scale: str = "area",
     scale_hue: bool = True,
     gridsize: int = 100,
-    width: float = .8,
+    width: float = 0.8,
     inner: Optional[str] = "box",
     split: bool = False,
     dodge: bool = True,
     orient: Optional[str] = None,
     linewidth: Optional[float] = None,
     color: Optional[str] = None,
-    palette: Optional[Union[str, List, Dict]] = None,
-    saturation: float = .75,
+    palette: Optional[Union[str, list, dict]] = None,
+    saturation: float = 0.75,
     ax: Optional[matplotlib.axes.Axes] = None,
-    offset: float = .15,
+    offset: float = 0.15,
     **kwargs: Any,
 ) -> matplotlib.axes.Axes:
-
-    plotter = _Half_ViolinPlotter(x, y, hue, data, order, hue_order,
-                             bw, cut, scale, scale_hue, gridsize,
-                             width, inner, split, dodge, orient, linewidth,
-                             color, palette, saturation, offset)
+    plotter = _Half_ViolinPlotter(
+        x,
+        y,
+        hue,
+        data,
+        order,
+        hue_order,
+        bw,
+        cut,
+        scale,
+        scale_hue,
+        gridsize,
+        width,
+        inner,
+        split,
+        dodge,
+        orient,
+        linewidth,
+        color,
+        palette,
+        saturation,
+        offset,
+    )
 
     if ax is None:
         ax = plt.gca()
@@ -855,73 +940,77 @@ def RainCloud(
     y: DataInput = None,
     hue: DataInput = None,
     data: Optional[pd.DataFrame] = None,
-    order: Optional[List[str]] = None,
-    hue_order: Optional[List[str]] = None,
+    order: Optional[list[str]] = None,
+    hue_order: Optional[list[str]] = None,
     orient: str = "v",
-    width_viol: float = .7,
-    width_box: float = .15,
-    palette: Union[str, List, Dict] = "Set2",
-    bw: Union[str, float] = .2,
+    width_viol: float = 0.7,
+    width_box: float = 0.15,
+    palette: Optional[Union[str, list, dict]] = None,
+    bw: Union[str, float] = 0.2,
     linewidth: float = 1,
-    cut: float = 0.,
+    cut: float = 0.0,
     scale: str = "area",
     jitter: bool = True,
-    move: float = 0.,
+    move: float = 0.0,
     offset: Optional[float] = None,
     point_size: float = 3,
     ax: Optional[matplotlib.axes.Axes] = None,
     pointplot: bool = False,
     alpha: Optional[float] = None,
     dodge: bool = False,
-    linecolor: str = 'red',
+    linecolor: str = "red",
     **kwargs: Any,
 ) -> matplotlib.axes.Axes:
+    """Draw a Raincloud plot of measure `y` of different categories `x`.
 
-    '''Draw a Raincloud plot of measure `y` of different categories `x`. Here `x` and `y` different columns of the pandas dataframe `data`.
+    Here `x` and `y` are different columns of the pandas dataframe `data`.
 
     A raincloud is made of:
-
         1) "Cloud", kernel desity estimate, the half of a violinplot.
         2) "Rain", a stripplot below the cloud
         3) "Umberella", a boxplot
-        4) "Thunder", a pointplot connecting the mean of the different categories (if `pointplot` is `True`)
+        4) "Thunder", a pointplot connecting the mean of different categories
+           (if `pointplot` is `True`)
 
     Main inputs:
-        x           categorical data. Iterable, np.array, or dataframe column name if 'data' is specified
-        y           measure data. Iterable, np.array, or dataframe column name if 'data' is specified
-        hue         a second categorical data. Use it to obtain different clouds and rainpoints
+        x           categorical data. Iterable, np.array, or dataframe column
+                    name if 'data' is specified
+        y           measure data. Iterable, np.array, or dataframe column name
+                    if 'data' is specified
+        hue         a second categorical data. Use it to obtain different
+                    clouds and rainpoints
         data        input pandas dataframe
         order       list, order of the categorical data
         hue_order   list, order of the hue
         orient      string, vertical if "v" (default), horizontal if "h"
         width_viol  float, width of the cloud
         width_box   float, width of the boxplot
-        move        float, adjusts rain position to the x-axis (default value 0.)
+        move        float, adjusts rain position to the x-axis (default 0.)
         offset      float, adjusts cloud position to the x-axis
 
-    kwargs can be passed to the [cloud (default), boxplot, rain/stripplot, pointplot]
-    by preponing [cloud_, box_, rain_ point_] to the argument name.
-    '''
+    kwargs can be passed to the [cloud (default), boxplot, rain/stripplot,
+    pointplot] by preponing [cloud_, box_, rain_ point_] to the argument name.
+    """
 
     # Save original variable names for axis labels before swapping
     orig_x, orig_y = x, y
 
-    if orient == 'h':  # swap x and y
+    if orient == "h":  # swap x and y
         x, y = y, x
     if ax is None:
         ax = plt.gca()
         # f, ax = plt.subplots(figsize = figsize) old version had this
 
     if offset is None:
-        offset = max(width_box/1.8, .15) + 0.05
+        offset = max(width_box / 1.8, 0.15) + 0.05
     n_plots = 3
     split = False
     boxcolor = "black"
-    boxprops = {'facecolor': 'none', "zorder": 10}
+    boxprops = {"facecolor": "none", "zorder": 10}
 
     # Determine if hue represents actual subgroups (different from categorical variable)
     # Compare string names if they're column names, not Series objects
-    categorical_var = y if orient == 'h' else x
+    categorical_var = y if orient == "h" else x
     categorical_var_name = categorical_var if isinstance(categorical_var, str) else None
     hue_name = hue if isinstance(hue, str) else None
     has_subgroups = hue is not None and hue_name != categorical_var_name
@@ -937,12 +1026,12 @@ def RainCloud(
             boxprops = {"zorder": 10}
         else:
             # Keep transparent when hue just colors the main categories
-            boxprops = {'facecolor': 'none', "zorder": 10}
+            boxprops = {"facecolor": "none", "zorder": 10}
 
     kwcloud = dict()
-    kwbox   = dict(saturation = 1, whiskerprops = {'linewidth': 2, "zorder": 10})
-    kwrain  = dict(zorder = 0, edgecolor = "white")
-    kwpoint = dict(capsize = 0., errwidth = 0., zorder = 20)
+    kwbox = dict(saturation=1, whiskerprops={"linewidth": 2, "zorder": 10})
+    kwrain = dict(zorder=0, edgecolor="white")
+    kwpoint = dict(capsize=0.0, errwidth=0.0, zorder=20)
     for key, value in kwargs.items():
         if "cloud_" in key:
             kwcloud[key.replace("cloud_", "")] = value
@@ -956,21 +1045,49 @@ def RainCloud(
             kwcloud[key] = value
 
     # Draw cloud/half-violin
-    half_violinplot(x = x, y = y, hue = hue, data = data,
-                    order = order, hue_order = hue_order,
-                    orient = orient, width = width_viol,
-                    inner = None, palette = palette, bw = bw,  linewidth = linewidth,
-                    cut = cut, scale = scale, split = split, offset = offset, ax = ax, **kwcloud)
+    half_violinplot(
+        x=x,
+        y=y,
+        hue=hue,
+        data=data,
+        order=order,
+        hue_order=hue_order,
+        orient=orient,
+        width=width_viol,
+        inner=None,
+        palette=palette,
+        bw=bw,
+        linewidth=linewidth,
+        cut=cut,
+        scale=scale,
+        split=split,
+        offset=offset,
+        ax=ax,
+        **kwcloud,
+    )
 
     # Draw umberella/boxplot
-    sns.boxplot   (x = x, y = y, hue = hue, data = data, orient = orient, width = width_box,
-                         order = order, hue_order = hue_order,
-                         color = boxcolor, showcaps = True, boxprops = boxprops,
-                         palette = palette, dodge = dodge, ax =ax, **kwbox)
+    sns.boxplot(
+        x=x,
+        y=y,
+        hue=hue,
+        data=data,
+        orient=orient,
+        width=width_box,
+        order=order,
+        hue_order=hue_order,
+        color=boxcolor,
+        showcaps=True,
+        boxprops=boxprops,
+        palette=palette,
+        dodge=dodge,
+        ax=ax,
+        **kwbox,
+    )
 
     # Set alpha for violin and boxplot elements
     # This affects PolyCollections (violin), PathPatches (boxplot boxes), and Lines (boxplot whiskers)
-    if not alpha is None:
+    if alpha is not None:
         # Apply to all collections (violin patches)
         for collection in ax.collections:
             collection.set_alpha(alpha)
@@ -985,10 +1102,23 @@ def RainCloud(
             line.set_alpha(alpha)
 
     # Draw rain/stripplot
-    ax =  stripplot (x = x, y = y, hue = hue, data = data, orient = orient,
-                    order = order, hue_order = hue_order, palette = palette,
-                    move = move, size = point_size, jitter = jitter, dodge = dodge,
-                    width = width_box, ax = ax, **kwrain)
+    ax = stripplot(
+        x=x,
+        y=y,
+        hue=hue,
+        data=data,
+        orient=orient,
+        order=order,
+        hue_order=hue_order,
+        palette=palette,
+        move=move,
+        size=point_size,
+        jitter=jitter,
+        dodge=dodge,
+        width=width_box,
+        ax=ax,
+        **kwrain,
+    )
 
     # Add pointplot
     if pointplot:
@@ -996,13 +1126,31 @@ def RainCloud(
         # When hue is present and represents subgroups, show separate lines per hue level
         # Otherwise show a single line
         if hue is not None and hue_name != categorical_var_name:
-            sns.pointplot(x = x, y = y, hue = hue, data = data, palette = palette,
-                          orient = orient, order = order, hue_order = hue_order,
-                          linestyles='-', ax = ax, **kwpoint)
+            sns.pointplot(
+                x=x,
+                y=y,
+                hue=hue,
+                data=data,
+                palette=palette,
+                orient=orient,
+                order=order,
+                hue_order=hue_order,
+                linestyles="-",
+                ax=ax,
+                **kwpoint,
+            )
         else:
-            sns.pointplot(x = x, y = y, data = data, color = linecolor,
-                          orient = orient, order = order,
-                          linestyles='-', ax = ax, **kwpoint)
+            sns.pointplot(
+                x=x,
+                y=y,
+                data=data,
+                color=linecolor,
+                orient=orient,
+                order=order,
+                linestyles="-",
+                ax=ax,
+                **kwpoint,
+            )
 
     # Prune the legend, add legend title
     # Only show legend if hue is a different variable than the categorical axis
@@ -1014,9 +1162,14 @@ def RainCloud(
         # Each plot component (violin, box, strip) adds its own legend entries when `hue`
         # is used. We only want to show one set of entries for clarity.
         num_hue_levels = len(labels) // n_plots
-        _ = plt.legend(handles[:num_hue_levels], labels[:num_hue_levels],
-                       bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.,
-                       title = str(hue))#, title_fontsize = 25)
+        _ = plt.legend(
+            handles[:num_hue_levels],
+            labels[:num_hue_levels],
+            bbox_to_anchor=(1.05, 1),
+            loc=2,
+            borderaxespad=0.0,
+            title=str(hue),
+        )  # , title_fontsize = 25)
     else:
         # Remove any legend that was created by the plotting functions
         legend = ax.get_legend()
@@ -1028,7 +1181,7 @@ def RainCloud(
     # When orient='v', the user expects: categorical var on x-axis, numeric var on y-axis
     # Note: In FacetGrid context, these will be overridden by FacetGrid._finalize_grid
     # Users should manually clear them in notebook if using FacetGrid with kwargs
-    if orient == 'h':
+    if orient == "h":
         # Horizontal: categorical (orig_x) on y-axis, numeric (orig_y) on x-axis
         if isinstance(orig_y, str):
             ax.set_xlabel(orig_y)
@@ -1044,11 +1197,11 @@ def RainCloud(
     # Adjust the ylim to fit (if needed)
     if orient == "h":
         ylim = list(ax.get_ylim())
-        ylim[-1]  -= (width_box + width_viol)/4.
+        ylim[-1] -= (width_box + width_viol) / 4.0
         _ = ax.set_ylim(ylim)
     elif orient == "v":
         xlim = list(ax.get_xlim())
-        xlim[-1]  -= (width_box + width_viol)/4.
+        xlim[-1] -= (width_box + width_viol) / 4.0
         _ = ax.set_xlim(xlim)
 
     return ax
