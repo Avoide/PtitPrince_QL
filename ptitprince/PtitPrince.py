@@ -12,7 +12,7 @@ from scipy import stats
 from seaborn.categorical import *
 from seaborn.categorical import _CategoricalPlotter  # , _CategoricalScatterPlotter
 
-__all__ = ["half_violinplot", "stripplot", "RainCloud"]
+__all__ = ["half_violinplot", "stripplot", "RainCloud", "RainCloud_QL"]
 __version__ = "0.3.1"
 
 # Define a type alias for data inputs for reusability
@@ -1151,6 +1151,254 @@ def RainCloud(
                 ax=ax,
                 **kwpoint,
             )
+
+    # Prune the legend, add legend title
+    # Only show legend if hue is a different variable than the categorical axis
+    # (otherwise the legend is redundant with the axis labels)
+    # Use the names we calculated earlier to avoid Series comparison issues
+    if hue is not None and hue_name != categorical_var_name:
+        handles, labels = ax.get_legend_handles_labels()
+
+        # Each plot component (violin, box, strip) adds its own legend entries when `hue`
+        # is used. We only want to show one set of entries for clarity.
+        num_hue_levels = len(labels) // n_plots
+        _ = plt.legend(
+            handles[:num_hue_levels],
+            labels[:num_hue_levels],
+            bbox_to_anchor=(1.05, 1),
+            loc=2,
+            borderaxespad=0.0,
+            title=str(hue),
+        )  # , title_fontsize = 25)
+    else:
+        # Remove any legend that was created by the plotting functions
+        legend = ax.get_legend()
+        if legend is not None:
+            legend.remove()
+
+    # Set axis labels based on ORIGINAL variable names
+    # When orient='h', the user expects: categorical var on y-axis, numeric var on x-axis
+    # When orient='v', the user expects: categorical var on x-axis, numeric var on y-axis
+    # Note: In FacetGrid context, these will be overridden by FacetGrid._finalize_grid
+    # Users should manually clear them in notebook if using FacetGrid with kwargs
+    if orient == "h":
+        # Horizontal: categorical (orig_x) on y-axis, numeric (orig_y) on x-axis
+        if isinstance(orig_y, str):
+            ax.set_xlabel(orig_y)
+        if isinstance(orig_x, str):
+            ax.set_ylabel(orig_x)
+    else:
+        # Vertical: categorical (orig_x) on x-axis, numeric (orig_y) on y-axis
+        if isinstance(orig_x, str):
+            ax.set_xlabel(orig_x)
+        if isinstance(orig_y, str):
+            ax.set_ylabel(orig_y)
+
+    # Adjust the ylim to fit (if needed)
+    if orient == "h":
+        ylim = list(ax.get_ylim())
+        ylim[-1] -= (width_box + width_viol) / 4.0
+        _ = ax.set_ylim(ylim)
+    elif orient == "v":
+        xlim = list(ax.get_xlim())
+        xlim[-1] -= (width_box + width_viol) / 4.0
+        _ = ax.set_xlim(xlim)
+
+    return ax
+
+def RainCloud_QL(
+    x: DataInput = None,
+    y: DataInput = None,
+    hue: DataInput = None,
+    data: Optional[pd.DataFrame] = None,
+    order: Optional[list[str]] = None,
+    hue_order: Optional[list[str]] = None,
+    orient: str = "v",
+    width_viol: float = 0.7,
+    width_box: float = 0.15,
+    palette: Optional[Union[str, list, dict]] = None,
+    bw: Union[str, float] = 0.2,
+    linewidth: float = 1,
+    cut: float = 0.0,
+    scale: str = "area",
+    jitter: bool = True,
+    move: float = 0.0,
+    offset: Optional[float] = None,
+    point_size: float = 3,
+    ax: Optional[matplotlib.axes.Axes] = None,
+    pointplot: bool = True,
+    boxplot: bool = False,
+    alpha: Optional[float] = None,
+    dodge: bool = False,
+    linecolor: str = "red",
+    **kwargs: Any,
+) -> matplotlib.axes.Axes:
+    """Draw a Raincloud plot of measure `y` of different categories `x`.
+
+    Here `x` and `y` are different columns of the pandas dataframe `data`.
+    Modified by Qianliang Li so Boxplot is also a toggle and Pointplot changed to also show Error bars
+
+    A raincloud is made of:
+        1) "Cloud", kernel desity estimate, the half of a violinplot.
+        2) "Rain", a stripplot below the cloud
+        3) "Umberella", a boxplot or pointplot
+
+    Main inputs:
+        x           categorical data. Iterable, np.array, or dataframe column
+                    name if 'data' is specified
+        y           measure data. Iterable, np.array, or dataframe column name
+                    if 'data' is specified
+        hue         a second categorical data. Use it to obtain different
+                    clouds and rainpoints
+        data        input pandas dataframe
+        order       list, order of the categorical data
+        hue_order   list, order of the hue
+        orient      string, vertical if "v" (default), horizontal if "h"
+        width_viol  float, width of the cloud
+        width_box   float, width of the boxplot
+        move        float, adjusts rain position to the x-axis (default 0.)
+        offset      float, adjusts cloud position to the x-axis
+
+    kwargs can be passed to the [cloud (default), boxplot, rain/stripplot,
+    pointplot] by preponing [cloud_, box_, rain_ point_] to the argument name.
+    """
+
+    # Save original variable names for axis labels before swapping
+    orig_x, orig_y = x, y
+
+    if orient == "h":  # swap x and y
+        x, y = y, x
+    if ax is None:
+        ax = plt.gca()
+        # f, ax = plt.subplots(figsize = figsize) old version had this
+
+    if offset is None:
+        offset = max(width_box / 1.8, 0.15) + 0.05
+    n_plots = 2
+    split = False
+    boxcolor = "black"
+    boxprops = {"facecolor": "none", "zorder": 10}
+
+    # Determine if hue represents actual subgroups (different from categorical variable)
+    # Compare string names if they're column names, not Series objects
+    categorical_var = y if orient == "h" else x
+    categorical_var_name = categorical_var if isinstance(categorical_var, str) else None
+    hue_name = hue if isinstance(hue, str) else None
+    has_subgroups = hue is not None and hue_name != categorical_var_name
+
+    if hue is not None:
+        # Note: We keep split = False for raincloud plots even with hue
+        # This ensures all clouds face the same direction (left) as expected in raincloud plots
+        boxcolor = palette
+
+        # Only fill boxes when hue represents true subgroups (not just coloring categories)
+        if has_subgroups:
+            # Filled boxes help distinguish overlapping subgroups
+            boxprops = {"zorder": 10}
+        else:
+            # Keep transparent when hue just colors the main categories
+            boxprops = {"facecolor": "none", "zorder": 10}
+
+    kwcloud = dict()
+    kwbox = dict(saturation=1, whiskerprops={"linewidth": 2, "zorder": 10})
+    kwrain = dict(zorder=0, edgecolor="white")
+    kwpoint = dict(capsize=0.0, errwidth=0.0, zorder=20)
+    for key, value in kwargs.items():
+        if "cloud_" in key:
+            kwcloud[key.replace("cloud_", "")] = value
+        elif "box_" in key:
+            kwbox[key.replace("box_", "")] = value
+        elif "rain_" in key:
+            kwrain[key.replace("rain_", "")] = value
+        elif "point_" in key:
+            kwpoint[key.replace("point_", "")] = value
+        else:
+            kwcloud[key] = value
+
+    # Draw cloud/half-violin
+    half_violinplot(
+        x=x,
+        y=y,
+        hue=hue,
+        data=data,
+        order=order,
+        hue_order=hue_order,
+        orient=orient,
+        width=width_viol,
+        inner=None,
+        palette=palette,
+        bw=bw,
+        linewidth=linewidth,
+        cut=cut,
+        scale=scale,
+        split=split,
+        offset=offset,
+        ax=ax,
+        **kwcloud,
+    )
+
+    # Draw rain/stripplot
+    ax = stripplot(
+        x=x,
+        y=y,
+        hue=hue,
+        data=data,
+        orient=orient,
+        order=order,
+        hue_order=hue_order,
+        palette=palette,
+        move=move,
+        size=point_size,
+        jitter=jitter,
+        dodge=dodge,
+        width=width_box,
+        ax=ax,
+        **kwrain,
+    )
+
+    # Draw umberella/boxplot
+    if boxplot:
+        n_plots += 1
+        sns.boxplot(
+            x=x,
+            y=y,
+            hue=hue,
+            data=data,
+            orient=orient,
+            width=width_box,
+            order=order,
+            hue_order=hue_order,
+            color=boxcolor,
+            showcaps=True,
+            boxprops=boxprops,
+            palette=palette,
+            dodge=dodge,
+            ax=ax,
+            **kwbox,
+        )
+
+    # Add pointplot
+    if pointplot:
+        n_plots += 1
+        sns.pointplot(x = x, y = y, hue = hue, data = data, palette=palette,
+              orient = orient, order = order, hue_order = hue_order,
+              dodge = width_box/2., ax = ax, **kwpoint)
+
+    # Set alpha for violin and boxplot elements
+    # This affects PolyCollections (violin), PathPatches (boxplot boxes), and Lines (boxplot whiskers)
+    if alpha is not None:
+        # Apply to all collections (violin patches)
+        for collection in ax.collections:
+            collection.set_alpha(alpha)
+        # Apply to all patches (boxplot boxes)
+        for patch in ax.patches:
+            patch.set_alpha(alpha)
+        # Apply to all artists (if any)
+        for artist in ax.artists:
+            artist.set_alpha(alpha)
+        # Apply to lines (boxplot whiskers, caps, medians)
+        for line in ax.lines:
+            line.set_alpha(alpha)
 
     # Prune the legend, add legend title
     # Only show legend if hue is a different variable than the categorical axis
