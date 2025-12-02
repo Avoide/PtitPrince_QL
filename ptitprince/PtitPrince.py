@@ -61,6 +61,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         palette,
         saturation,
         offset,
+        min_obs,
     ):
         variables = dict(x=x, y=y, hue=hue)
 
@@ -96,6 +97,7 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
         self.width = width
         self.dodge = dodge
         self.offset = offset
+        self.min_obs = min_obs
 
         if inner is not None:
             if not any(
@@ -357,12 +359,12 @@ class _Half_ViolinPlotter(_CategoricalPlotter):
             density = violin["density"]
             group_name = violin["group_name"]
 
-            # Handle special case of no observations
-            if support.size == 0:
+            # Do not draw below min_obs, e.g. 0 or 1 observations
+            if support.size < min_obs:
                 continue
 
             # Handle special case of a single observation
-            if support.size == 1:
+            elif support.size == 1:
                 val = np.ndarray.item(support)
                 d = np.ndarray.item(density)
                 center = self._get_center_position(group_name)
@@ -902,6 +904,7 @@ def half_violinplot(
     saturation: float = 0.75,
     ax: Optional[matplotlib.axes.Axes] = None,
     offset: float = 0.15,
+    min_obs: int = 1,
     **kwargs: Any,
 ) -> matplotlib.axes.Axes:
     plotter = _Half_ViolinPlotter(
@@ -926,6 +929,7 @@ def half_violinplot(
         palette,
         saturation,
         offset,
+        min_obs,
     )
 
     if ax is None:
@@ -1299,7 +1303,7 @@ def RainCloud_QL(
             # Keep transparent when hue just colors the main categories
             boxprops = {"facecolor": "none", "zorder": 10}
 
-    kwcloud = dict()
+    kwcloud = dict(min_obs = 2)
     kwbox = dict(saturation=1, whiskerprops={"linewidth": 2, "zorder": 10})
     kwrain = dict(zorder=0, edgecolor="white")
     kwpoint = dict(capsize = 0.2, err_kws={'linewidth': 2}, palette = "dark:black",
