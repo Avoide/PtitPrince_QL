@@ -1302,7 +1302,8 @@ def RainCloud_QL(
     kwcloud = dict()
     kwbox = dict(saturation=1, whiskerprops={"linewidth": 2, "zorder": 10})
     kwrain = dict(zorder=0, edgecolor="white")
-    kwpoint = dict(capsize=0.0, err_kws={'linewidth': 0.0}, zorder=20)
+    kwpoint = dict(capsize = 0.2, err_kws={'linewidth': 2}, palette = "dark:black",
+                   markers = "o", linewidth = 0.75, markersize = 0.75)
     for key, value in kwargs.items():
         if "cloud_" in key:
             kwcloud[key.replace("cloud_", "")] = value
@@ -1380,14 +1381,9 @@ def RainCloud_QL(
     # Add pointplot
     if pointplot:
         n_plots += 1
-        if not hue is None:
-            sns.pointplot(x = x, y = y, hue = hue, data = data,
-                          orient = orient, order = order, hue_order = hue_order,
-                          dodge = width_box/2., palette = palette, ax = ax, **kwpoint)
-        else:
-            sns.pointplot(x = x, y = y, hue = hue, data = data, color = linecolor,
-                           orient = orient, order = order, hue_order = hue_order,
-                           dodge = width_box/2., ax = ax, **kwpoint)
+        sns.pointplot(x = x, y = y, hue = hue, data = data,
+                      orient = orient, order = order, hue_order = hue_order,
+                      dodge = width_box/2., ax = ax, **kwpoint)
 
     # Set alpha for violin and boxplot elements
     # This affects PolyCollections (violin), PathPatches (boxplot boxes), and Lines (boxplot whiskers)
