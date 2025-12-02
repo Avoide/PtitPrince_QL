@@ -1303,7 +1303,7 @@ def RainCloud_QL(
     kwbox = dict(saturation=1, whiskerprops={"linewidth": 2, "zorder": 10})
     kwrain = dict(zorder=0, edgecolor="white")
     kwpoint = dict(capsize = 0.2, err_kws={'linewidth': 2}, palette = "dark:black",
-                   markers = "o", linewidth = 0.75, markersize = 0.75)
+                   markers = "o", markersize = 4)
     for key, value in kwargs.items():
         if "cloud_" in key:
             kwcloud[key.replace("cloud_", "")] = value
